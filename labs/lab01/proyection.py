@@ -14,8 +14,6 @@
 #
 #####################################################################################
 
-
-
 import matplotlib.pyplot as plt
 import scipy.linalg as scAlg
 import numpy as np

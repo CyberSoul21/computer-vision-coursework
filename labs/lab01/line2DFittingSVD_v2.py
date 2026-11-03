@@ -37,6 +37,11 @@ def drawLine(l,strFormat,lWidth):
     # Draw the line segment p_l_x to  p_l_y
     plt.plot([p_l_y[0], p_l_x[0]], [p_l_y[1], p_l_x[1]], strFormat, linewidth=lWidth)
 
+def fit_line_with_svd(X):  # X is 3xN homogeneous points (like x or xGT)
+    A = X.T                 # N x 3
+    u, s, vh = np.linalg.svd(A, full_matrices=True)
+    l = vh[-1, :]           # (a,b,c)
+    return u, s, vh, l   
 
 if __name__ == '__main__':
     np.set_printoptions(precision=4,linewidth=1024,suppress=True)
@@ -82,8 +87,29 @@ if __name__ == '__main__':
     l_ls = vh[-1, :]
 
     # Notice that the input matrix A of the svd has been decomposed such that A = u @ sM @ vh 
+    
+    # === 3.1: Fit using only the 2 extreme points of noisy data x ===
+    x_extremePoints = x[:,[0,-1]]    
+    u, s, vh, l_ls_extreme = fit_line_with_svd(x_extremePoints)
+    print("3.1  shapes  U:", u.shape, "  s:", s.shape, "  Vh:", vh.shape)
+    print("3.1  line from 2 noisy extremes (up to scale):", l_ls)
+
+    drawLine(l_ls_extreme, 'm--', 2)           # magenta dashed line for 3.1
+    plt.draw(); plt.waitforbuttonpress()
+    # Notice that the input matrix A of the svd has been decomposed such that A = u @ sM @ vh 
+
+    # === 3.2: Fit using the 5 perfect points xGT ===
+    u, s, vh, l_GT_est = fit_line_with_svd(xGT)
+
+    print("3.2  shapes  U:", u.shape, "  s:", s.shape, "  Vh:", vh.shape)
+    print("3.2  line from 5 perfect points (≈ ground truth):", l_GT_est)
+
+    drawLine(l_GT_est, 'c--', 2)       # cyan dashed line for 3.2
+    plt.draw(); plt.waitforbuttonpress()
+
 
     drawLine(l_ls, 'r--', 1)
+
     plt.draw()
     plt.waitforbuttonpress()
 
