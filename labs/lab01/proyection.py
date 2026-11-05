@@ -21,6 +21,8 @@ import cv2
 
 from plotData_v15 import *
 
+#from ..cvLibrary import *
+
 #DATA_LAB_1 = 'data/'
 
 def assemble_transform(R:np.ndarray,t:np.ndarray) -> np.ndarray:
@@ -137,9 +139,23 @@ if __name__ == '__main__':
     T_c2_w = invert_transform(T_w_c2) 
 
     #print(computeProjectionFromKRT(K,R_w_c1,t_w_c1))
+
     P1 = computeProjectionMatrix(K,T_c1_w)
     P2 = computeProjectionMatrix(K,T_c2_w)
     
+    print(P1)
+
+    #Testing with openCV
+    K_d, R_d, C_h, Rx, Ry, Rz, euler = cv2.decomposeProjectionMatrix(P1)
+    print(K_d[2,2])
+    K_d = K_d / K_d[2, 2]            # K is only recovered up to scale
+    C = (C_h[:3] / C_h[3]).ravel()   # camera center, homogeneous -> 3D
+    t_d = -R_d @ C                   # translation
+
+    print("K match:", np.allclose(K_d, K,rtol=1e-3, atol=1e-6))
+    print("R match:", np.allclose(R_d, T_c1_w[:3, :3]))
+    print("t match:", np.allclose(t_d, T_c1_w[:3, 3]))
+
     #**************************************************************************************
     # 1.2 Compute and plot all the projections of the 3D points A,B,C,D,E in both images.
     x1 = projectPoints(P1,X)
@@ -281,3 +297,38 @@ if __name__ == '__main__':
     plt.tight_layout()
     plt.show()
     #**********************************************************************    
+
+    #########################################################################
+    #Planes in homogeneous coordinates
+    ########################################################################
+    #**********************************************************************
+    #4.1
+    #**********************************************************************
+    pts = np.array([
+        [3.44, 0.80, 0.82, 1.0],  # A
+        [4.20, 0.80, 0.82, 1.0],  # B
+        [4.20, 0.60, 0.82, 1.0],  # C
+        [3.55, 0.60, 0.82, 1.0],  # D
+        [-0.01, 2.60, 1.21, 1.0], # E
+    ])
+    A = pts[:4, :]            # use only A..D
+    U, S, Vt = np.linalg.svd(A, full_matrices=True)
+    pi = Vt[-1]                        # [a,b,c,D] up to scale
+    print("Pi = ",pi)
+    n = pi[:3]; pi = pi / np.linalg.norm(n)  # unit-normal form
+
+    #**********************************************************************
+
+    #**********************************************************************
+    #4.2
+    #**********************************************************************
+    # --- Distances for all points ---
+    Nnorm = np.linalg.norm(pi[:3])            # should be 1 now
+    dists = (pts @ pi) / Nnorm                # signed distances
+
+    print("Plane (unit-normal):", pi)
+    print("Signed distances (A..E):", dists)
+
+    #**********************************************************************
+    #########################################################################
+    #TODO: Make some function in order to simplify the code!    

@@ -13,6 +13,10 @@
 # Version: 2.0
 #
 #####################################################################################
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from cvLibrary import *
 
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -119,14 +123,14 @@ if __name__ == '__main__':
 
 
     # Load ground truth
-    T_w_c1 = np.loadtxt('T_w_c1.txt')
-    T_w_c2 = np.loadtxt('T_w_c2.txt')
+    T_w_c1 = np.loadtxt(DATA_LAB + 'T_w_c1.txt')
+    T_w_c2 = np.loadtxt(DATA_LAB +'T_w_c2.txt')
 
-    K_c = np.loadtxt('K_c.txt')
-    X_w = np.loadtxt('X_w.txt')
+    K_c = np.loadtxt(DATA_LAB + 'K_c.txt')
+    X_w = np.loadtxt(DATA_LAB + 'X_w.txt')
 
-    x1 = np.loadtxt('x1Data.txt')
-    x2 = np.loadtxt('x2Data.txt')
+    x1 = np.loadtxt(DATA_LAB + 'x1Data.txt')
+    x2 = np.loadtxt(DATA_LAB + 'x2Data.txt')
 
 
     ##Plot the 3D cameras and the 3D points
@@ -153,8 +157,8 @@ if __name__ == '__main__':
     plt.show()
 
     ## 2D plotting example
-    img1 = cv2.cvtColor(cv2.imread('image1.png'), cv2.COLOR_BGR2RGB)
-    img2 = cv2.cvtColor(cv2.imread('image2.png'), cv2.COLOR_BGR2RGB)
+    img1 = cv2.cvtColor(cv2.imread(DATA_LAB + 'image1.png'), cv2.COLOR_BGR2RGB)
+    img2 = cv2.cvtColor(cv2.imread(DATA_LAB + 'image2.png'), cv2.COLOR_BGR2RGB)
 
 
     plt.figure(1)
