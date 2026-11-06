@@ -2,6 +2,7 @@ import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from cvLibrary import *
+from plotData_v2 import *
 
 
 
@@ -58,7 +59,17 @@ if __name__ == '__main__':
     A = np.concatenate([Ac1,Ac2],axis=1)
 
     u, s, vh = np.linalg.svd(A, full_matrices=True)
-    X = vh[:,-1, :] 
+    X_h = vh[:,-1, :].T 
     #Convert homogeneous coordinates to Euclidean coordinates
+    X = X_h[0:3,:]
+    W = X_h[3,:]
+    X = X/W
     print("Triangulate points 3D...")
-    print(X)
+    print(X.shape)
+
+    fig3D = plt.figure(3)
+    ax = plt.axes(projection='3d', adjustable='box')    
+    cameras = {'W': np.eye(4), 'C1': T_w_c1, 'C2': T_w_c2}
+
+    plot3DScene(X,cameras,ax=ax,show=True)
+    #plt.show(block=True)
