@@ -49,13 +49,80 @@ def plotEpipolarLinesInteractive(img1, img2, F_21, colors=('r', 'g', 'b', 'c', '
     plt.show(block=True)
     return np.array(points).T, np.array(lines).T
 
+def skew(t):
+    """
+    Build the skew-symmetric matrix [t]x of a 3D vector, such that
+    [t]x @ v == np.cross(t, v) for any 3D vector v.
+     -input:
+         t: (3,) vector (tx, ty, tz).
+     -output:
+         (3x3) skew-symmetric matrix:
+             [  0  -tz   ty ]
+             [ tz    0  -tx ]
+             [-ty   tx    0 ]
+    """    
+    tx, ty, tz = t
+    return np.array([
+        [0, -tz, ty],
+        [tz, 0, -tx],
+        [-ty, tx, 0]
+    ])
 
+def essentialFromGroundTruth(T_wc1,T_wc2):
+    """
+    Compute the essential matrix E_21 from the ground-truth poses of two cameras.
+    E_21 satisfies the epipolar constraint x2^T @ E_21 @ x1 = 0, where x1 and x2
+    are corresponding points in normalized (calibrated) coordinates of camera 1 and 2.
+        E_21 = [t_21]x @ R_21
+    with (R_21, t_21) the relative pose that maps points from camera 1 to camera 2
+    (T_21 = T_c2_c1 = inv(T_w_c2) @ T_w_c1).
+     -input:
+         T_wc1: (4x4) pose of camera 1 in the world frame (T_w_c1).
+         T_wc2: (4x4) pose of camera 2 in the world frame (T_w_c2).
+     -output:
+         E_21: (3x3) essential matrix, defined up to scale.
+    """
+    T_21 = np.linalg.inv(T_wc1) @ T_wc2
+
+    R_21 = T_21[:3,:3]
+    t_21  = T_21[:3,3]
+
+    tx = skew(t_21)
+
+    #Essesntial Matrix
+    E_21 = tx @ R_21
+    
+    # Optional normalization (E is defined up to scale)
+    E_21 /= np.linalg.norm(E_21)
+
+    return E_21
+
+def fundamentalMatrixFromEssential(E,K_c1,K_c2):
+    """
+    Compute the fundamental matrix F_21 from the Essential matrix E_21.
+    F_21 satisfies the epipolar constraint x2^T @ F_21 @ x1 = 0, where x1 and x2
+    are corresponding points in pixel (homogeneous) coordinates of image 1 and 2.
+        F_21 = K_c2^-T @ E_21 @ K_c1^-1
+
+     -input:
+         E: (3x3) essential matrix, defined up to scale.
+         K_c1: (3x3) Camera intrisict parameter for camera 1.
+         K_c2: (3x3) Camera intrisict parameter for camera 2.
+     -output:
+         F: (3x3) Fundamental matrix, dnormalized to unit Frobenius norm.
+    """
+    F = np.linalg.inv(K_c2.T) @ E @ np.linalg.inv(K_c1) 
+    F /= np.linalg.norm(F)
+    return F
 
 if __name__ == '__main__':
     
     print("Fundamental...")
 
     F_21_test = np.loadtxt(DATA_LAB + 'F_21_test.txt')
+    Kc        = np.loadtxt(DATA_LAB + 'K_c.txt')
+    T_w_c1    = np.loadtxt(DATA_LAB + 'T_w_c1.txt')
+    T_w_c2    = np.loadtxt(DATA_LAB + 'T_w_c2.txt')
 
     # # Display image 1
     # plt.figure(1)
@@ -75,7 +142,23 @@ if __name__ == '__main__':
     # plt.title("Epipolar line in Image 2")
     # drawLine(l2)
 
-    plotEpipolarLinesInteractive(IMG1,IMG2,F_21_test)
+    #2.1 Epipolar lines visualization
+    #plotEpipolarLinesInteractive(IMG1,IMG2,F_21_test)
+
+    #2.2 Fundamental matrix definition, from ground truth poses 
+    
+    E_21 = essentialFromGroundTruth(T_w_c1,T_w_c2)
+    F_21 = fundamentalMatrixFromEssential(E_21,Kc,Kc)
+
+    print("F_21_test:")
+    F_21_test /= np.linalg.norm(F_21_test) 
+    print(F_21_test)
+    print("F_21:")
+    print(F_21)
+
+    #2.3 Fundamental matrix linear estimation with eight point solution.
+    
+
 
 
     
