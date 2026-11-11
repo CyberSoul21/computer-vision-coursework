@@ -3,6 +3,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from cvLibrary import *
 from plotData_v2 import *
+from triangulation import triangulatePoints
 
 IMG1 = cv2.cvtColor(cv2.imread(DATA_LAB + "Image1.png"), cv2.COLOR_BGR2RGB)
 IMG2 = cv2.cvtColor(cv2.imread(DATA_LAB + "Image2.png"), cv2.COLOR_BGR2RGB)
@@ -259,6 +260,73 @@ def essentialFromFundamental(F,Kc1,Kc2):
 
         return E
 
+def decomposeEssential(E_21):
+    """
+    Decompose the essential matrix E_21 into the four possible relative poses.
+    E_21 = U diag(1,1,0) Vt  ->  R = U W Vt or U W^T Vt,  t = +-U[:, 2]
+     -input:
+         E_21: (3x3) essential matrix.
+     -output:
+         T_list: list of four (4x4) candidate transformations T_c2_c1.
+                 t has unit norm (scale cannot be recovered from E).
+    """
+    U, _, Vt = np.linalg.svd(E_21)
+
+    # Ensure R = U W Vt is a rotation (det = +1), not a reflection
+    if np.linalg.det(U @ Vt) < 0:
+        U[:, -1] *= -1
+
+    W = np.array([[0, -1, 0],
+                  [1,  0, 0],
+                  [0,  0, 1]])
+
+    R_list = [U @ W @ Vt, U @ W.T @ Vt]
+    t = U[:, -1]
+    t_list = [t, -t]
+
+    T_list = []
+    for R in R_list:
+        for t in t_list:
+            T = np.eye(4)
+            T[:3, :3] = R
+            T[:3, 3] = t
+            T_list.append(T)
+    return T_list
+
+
+def poseFromEssential(E_21, K_c1, K_c2, x1, x2):
+    """
+    Recover the relative pose T_21 (camera 1 -> camera 2) from the essential matrix.
+    Among the four candidates of decomposeEssential, keep the one that places the
+    most triangulated points in front of both cameras (cheirality: depth Z > 0).
+    Camera 1 is the reference frame: P1 = K_c1 [I | 0].
+     -input:
+         E_21: (3x3) essential matrix (x2n^T @ E_21 @ x1n = 0).
+         K_c1: (3x3) intrinsic calibration matrix of camera 1.
+         K_c2: (3x3) intrinsic calibration matrix of camera 2.
+         x1: (2xN or 3xN) pixel points in image 1.
+         x2: (2xN or 3xN) corresponding pixel points in image 2.
+     -output:
+         T_21: (4x4) transformation T_c2_c1 (points in camera 1 -> camera 2),
+               translation up to scale (unit norm).
+         X: (3xN) triangulated points in camera 1 coordinates for the chosen T_21.
+    """
+    P1 = K_c1 @ np.hstack([np.eye(3), np.zeros((3, 1))])
+
+    best_score, T_21, X_best = -1, None, None
+    for T in decomposeEssential(E_21):
+        P2 = computeProjectionMatrix(K_c2, T)
+        X = triangulatePoints(P1, P2, x1, x2)          # camera 1 frame
+        X_c2 = T[:3, :3] @ X + T[:3, 3:4]              # camera 2 frame
+
+        # Cheirality: in front of BOTH cameras
+        score = np.sum((X[2, :] > 0) & (X_c2[2, :] > 0))
+        if score > best_score:
+            best_score, T_21, X_best = score, T, X
+
+    return T_21, X_best
+
+
 if __name__ == '__main__':
     
     print("Fundamental...")
@@ -320,11 +388,107 @@ if __name__ == '__main__':
     print("Epipole image 1:", e1)
     print("Epipole image 2:", e2)
 
-    plotEpipolarLinesInteractive(IMG1,IMG2,F_21,e2=e2)
+    #plotEpipolarLinesInteractive(IMG1,IMG2,F_21,e2=e2)
 
+    #2.4 Pose estimation from two views
     E_21 = essentialFromFundamental(F_21,Kc,Kc)
     print("E_21 from F_21:")
     print(E_21)
 
+    T_21, X = poseFromEssential(E_21, Kc, Kc, x1, x2)
+    print("T_21:\n", T_21)
 
+    cameras = {'C1': np.eye(4), 'C2': np.linalg.inv(T_21)}
+    plot3DScene(X, cameras)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    # #Recover the four possible camera transformations
+
+    # U, S , Vt = np.linalg.svd(E_21)
+
+    # #Ensure valid rotation matrices
+
+    # # Ensure valid rotation matrices
+    # if np.linalg.det(U @ Vt) < 0:
+    #     U[:, -1] *= -1
+
+    # W = np.array([
+    #     [0, -1, 0],
+    #     [1,  0, 0],
+    #     [0,  0, 1]
+    # ])
+
+    # R1 = U @ W @ Vt
+    # R2 = U @ W.T @ Vt
+
+    # R_list = [R1,R2]
     
+    # t = U[:, -1]
+
+    # t_list = [t,-t]
+
+    # T_list = []
+    # for R in R_list:
+    #     for t in t_list:
+    #         T = np.eye(4)
+    #         T[:3, :3] = R
+    #         T[:3, 3] = t
+    #         T_list.append(T)
+
+    # #Triangulate points using each candidate
+    # #For relative pose estimation, we can choose camera 1 as our reference coordinate system:
+
+    # P1 = Kc @ np.hstack([
+    #     np.eye(3),
+    #     np.zeros((3, 1))
+    # ])
+
+    # #Triangulate points using each candidate
+
+    # total_score = []
+    # for T in T_list:
+    #     P2 = computeProjectionMatrix(Kc,T)
+
+    #     #Select the correct transformation (Cheirality)
+    #     #The key geometric constraint is:
+    #     #A physically visible 3D point must be in front of both cameras.
+    #     #In the camera coordinate system, this means that its depth Z must be positive.
+    #     X = triangulatePoints(P1,P2,x1,x2)
+
+
+    #     X_c2 = T[:3, :3] @ X + T[:3, 3:4]           # same points in camera 2 frame
+
+    #     valid = (X[2, :] > 0) & (X[2, :] > 0)
+    #     score = np.sum(valid)
+
+    #     total_score.append(score)
+
+    # print(total_score)
+    # best = np.argmax(total_score)
+    # T_21 = T_list[best]
+    
+
+
