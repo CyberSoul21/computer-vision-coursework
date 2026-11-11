@@ -170,8 +170,10 @@ def drawRefSystem(ax, T_w_c, strStyle, nameStr):
     draw3DLine(ax, T_w_c[0:3, 3:4], T_w_c[0:3, 3:4] + T_w_c[0:3, 2:3], strStyle, 'b', 1)
     ax.text(np.squeeze( T_w_c[0, 3]+0.1), np.squeeze( T_w_c[1, 3]+0.1), np.squeeze( T_w_c[2, 3]+0.1), nameStr)
 
-def plot3DScene(X_w, cameras, ax=None, strColor='b', bbox=(0, 4), show=True):
+def plot3DScene(X_w, cameras, ax=None, strColor='b', bbox=(-1, 3), show=True):
     """
+    #bbox=(0, 4)
+    #bbox=(-1, 3)
     Plot reference systems and 3D points in a 3D axis.
      -input:
          X_w: (3xN or 4xN) points in world coordinates.

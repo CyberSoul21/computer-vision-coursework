@@ -95,7 +95,8 @@ def essentialFromGroundTruth(T_wc1,T_wc2):
      -output:
          E_21: (3x3) essential matrix, defined up to scale.
     """
-    T_21 = np.linalg.inv(T_wc1) @ T_wc2
+    T_21 = np.linalg.inv(T_wc2) @ T_wc1  # T_c2_c1: maps points camera 1 -> camera 2
+    #T_12 = np.linalg.inv(T_wc1) @ T_wc2 # T_c1_c2 (= T_12): maps points camera 2 -> camera 1
 
     R_21 = T_21[:3,:3]
     t_21  = T_21[:3,3]
@@ -119,10 +120,10 @@ def fundamentalMatrixFromEssential(E,K_c1,K_c2):
 
      -input:
          E: (3x3) essential matrix, defined up to scale.
-         K_c1: (3x3) Camera intrisict parameter for camera 1.
-         K_c2: (3x3) Camera intrisict parameter for camera 2.
+         K_c1: (3x3) Camera intrinsic parameter for camera 1.
+         K_c2: (3x3) Camera intrinsic parameter for camera 2.
      -output:
-         F: (3x3) Fundamental matrix, dnormalized to unit Frobenius norm.
+         F: (3x3) Fundamental matrix, normalized to unit Frobenius norm.
     """
     F = np.linalg.inv(K_c2.T) @ E @ np.linalg.inv(K_c1)
     F /= np.linalg.norm(F)
@@ -231,34 +232,33 @@ def computeEpipoles(F_21, eps=1e-10):
     return e1, e2
 
 def essentialFromFundamental(F,Kc1,Kc2):
-        """
-        Compute the essential matrix E_21 from the fundamental matrix F_21.
-        Inverse of F_21 = Kc2^-T @ E_21 @ Kc1^-1, i.e.
-            E_21 = Kc2^T @ F_21 @ Kc1
-        E_21 satisfies x2n^T @ E_21 @ x1n = 0 with x1n, x2n in normalized
-        coordinates (x_n = K^-1 @ x_pixels).
-         -input:
-             F: (3x3) fundamental matrix F_21 (x2^T @ F_21 @ x1 = 0 in pixels).
-             Kc1: (3x3) intrinsic calibration matrix of camera 1.
-             Kc2: (3x3) intrinsic calibration matrix of camera 2.
-         -output:
-             E: (3x3) essential matrix E_21 with singular values (sigma, sigma, 0),
-                defined up to scale.
-        """
-        E = Kc2.T @ F @ Kc1
 
-        # A valid essential matrix E = [t]x @ R has singular values (sigma, sigma, 0):
-        # [t]x has singular values (|t|, |t|, 0) and the rotation R does not change them.
-        # With noisy data (e.g. F from the eight-point method) the product above is only
-        # approximately essential, e.g. (1.02, 0.97, 0.003). We project it onto the
-        # closest valid essential matrix (in Frobenius norm): keep U and Vt, set the two
-        # largest singular values to their mean and the smallest to 0. This is needed so
-        # that the epipoles exist (rank 2) and E can be decomposed into R and t.
-        U, S, Vt = np.linalg.svd(E)
-        sigma = (S[0] + S[1]) / 2
-        E = U @ np.diag([sigma, sigma, 0]) @ Vt
-
-        return E
+    """
+    Compute the essential matrix E_21 from the fundamental matrix F_21.
+    Inverse of F_21 = Kc2^-T @ E_21 @ Kc1^-1, i.e.
+        E_21 = Kc2^T @ F_21 @ Kc1
+    E_21 satisfies x2n^T @ E_21 @ x1n = 0 with x1n, x2n in normalized
+    coordinates (x_n = K^-1 @ x_pixels).
+     -input:
+         F: (3x3) fundamental matrix F_21 (x2^T @ F_21 @ x1 = 0 in pixels).
+         Kc1: (3x3) intrinsic calibration matrix of camera 1.
+         Kc2: (3x3) intrinsic calibration matrix of camera 2.
+     -output:
+         E: (3x3) essential matrix E_21 with singular values (sigma, sigma, 0),
+            defined up to scale.
+    """
+    E = Kc2.T @ F @ Kc1
+    # A valid essential matrix E = [t]x @ R has singular values (sigma, sigma, 0):
+    # [t]x has singular values (|t|, |t|, 0) and the rotation R does not change them.
+    # With noisy data (e.g. F from the eight-point method) the product above is only
+    # approximately essential, e.g. (1.02, 0.97, 0.003). We project it onto the
+    # closest valid essential matrix (in Frobenius norm): keep U and Vt, set the two
+    # largest singular values to their mean and the smallest to 0. This is needed so
+    # that the epipoles exist (rank 2) and E can be decomposed into R and t.
+    U, S, Vt = np.linalg.svd(E)
+    sigma = (S[0] + S[1]) / 2
+    E = U @ np.diag([sigma, sigma, 0]) @ Vt
+    return E
 
 def decomposeEssential(E_21):
     """
@@ -294,7 +294,7 @@ def decomposeEssential(E_21):
     return T_list
 
 
-def poseFromEssential(E_21, K_c1, K_c2, x1, x2):
+def recoverPoseFromEssential(E_21, K_c1, K_c2, x1, x2):
     """
     Recover the relative pose T_21 (camera 1 -> camera 2) from the essential matrix.
     Among the four candidates of decomposeEssential, keep the one that places the
@@ -395,7 +395,7 @@ if __name__ == '__main__':
     print("E_21 from F_21:")
     print(E_21)
 
-    T_21, X = poseFromEssential(E_21, Kc, Kc, x1, x2)
+    T_21, X = recoverPoseFromEssential(E_21, Kc, Kc, x1, x2)
     print("T_21:\n", T_21)
 
     cameras = {'C1': np.eye(4), 'C2': np.linalg.inv(T_21)}
