@@ -97,3 +97,53 @@ if __name__ == '__main__':
 
     #3.2 Point transfer visualization
     plotTransferredPointsHomography(IMG1,IMG2,H_21)
+
+    #3.3 Homography linear estimation from matches
+    u1, v1 = x1[0, :], x1[1, :]
+    u2, v2 = x2[0, :], x2[1, :]
+
+    ones = np.ones_like(u1)
+    zeros = np.zeros_like(u1)
+
+    #Construct A
+    A1 = np.stack([
+        u1, v1, ones,
+        zeros, zeros, zeros,
+        -u2*u1, -u2*v1, -u2
+    ], axis=1)
+
+    A2 = np.stack([
+        zeros, zeros, zeros,
+        u1, v1, ones,
+        -v2*u1, -v2*v1, -v2
+    ], axis=1)
+
+    print(A1.shape)  # (N, 9)
+    print(A2.shape)  # (N, 9)
+
+    #combine the equations:
+    A = np.vstack([A1, A2])
+
+    print(A.shape) # (2*N, 9)
+
+    #Estimate the homography using SVD
+    #solve AH = 0
+
+    _, _, Vt = np.linalg.svd(A)
+
+    h = Vt[-1, :]
+    H_est = h.reshape(3, 3)
+
+    H_est = H_est / H_est[2, 2]
+
+    #Evaluate the accuracy
+
+    x2_pred_h = H_est @ x1
+
+    x2_pred = x2_pred_h[:2, :] / x2_pred_h[2, :]
+
+    errors = np.linalg.norm(x2[:2, :] - x2_pred, axis=0)
+
+    rmse = np.sqrt(np.mean(errors**2))
+
+    print("Homography RMSE (pixels):", rmse)
