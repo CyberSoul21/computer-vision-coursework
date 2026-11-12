@@ -78,8 +78,71 @@ def homographyFromGroundTruth(T_w_c1, T_w_c2, K_c1, K_c2, Pi_1):
     return H_21
 
 
+def toPixels(x):
+    """
+    Return the (2xN) pixel coordinates of 2xN points or 3xN homogeneous points.
+    """
+    return x[:2, :] / x[2, :] if x.shape[0] == 3 else x[:2, :]
+
+
+def homographyFromMatches(x1, x2):
+    """
+    Estimate the homography H_21 (x2 ~ H_21 @ x1) with the linear DLT method.
+    Each match gives two equations, linear in the 9 entries of H:
+        [u1 v1 1  0  0  0  -u2*u1 -u2*v1 -u2] @ h = 0
+        [0  0  0  u1 v1 1  -v2*u1 -v2*v1 -v2] @ h = 0
+    Stacking N >= 4 matches gives A (2N x 9) @ h = 0, solved by SVD (last row of Vt).
+     -input:
+         x1: (2xN or 3xN) pixel points in image 1, N >= 4 (points on the plane).
+         x2: (2xN or 3xN) corresponding pixel points in image 2.
+     -output:
+         H_21: (3x3) homography, normalized so H_21[2,2] = 1.
+    """
+    x1, x2 = toPixels(x1), toPixels(x2)
+    u1, v1 = x1[0, :], x1[1, :]
+    u2, v2 = x2[0, :], x2[1, :]
+
+    ones = np.ones_like(u1)
+    zeros = np.zeros_like(u1)
+
+    # Two equations per match -> (N, 9) each
+    A1 = np.stack([u1, v1, ones,
+                   zeros, zeros, zeros,
+                   -u2*u1, -u2*v1, -u2], axis=1)
+    A2 = np.stack([zeros, zeros, zeros,
+                   u1, v1, ones,
+                   -v2*u1, -v2*v1, -v2], axis=1)
+    A = np.vstack([A1, A2])                         # (2N, 9)
+
+    # Solve A h = 0 -> last row of Vt (smallest singular value)
+    _, _, Vt = np.linalg.svd(A)
+    H_21 = Vt[-1, :].reshape(3, 3)
+
+    # Normalize (H is defined up to scale)
+    return H_21 / H_21[2, 2]
+
+
+def homographyTransferError(H_21, x1, x2):
+    """
+    Transfer error of a homography: points of image 1 are mapped to image 2 with
+    H_21 and compared with the measured points in image 2.
+        e_i = || x2_i - pixels(H_21 @ x1_i) ||
+     -input:
+         H_21: (3x3) homography (image 1 -> image 2).
+         x1: (2xN or 3xN) pixel points in image 1.
+         x2: (2xN or 3xN) corresponding pixel points in image 2.
+     -output:
+         rmse: sqrt(mean(e_i^2)) in pixels.
+    """
+    x1, x2 = toPixels(x1), toPixels(x2)
+    x1_h = np.vstack((x1, np.ones((1, x1.shape[1]))))
+    x2_pred = toPixels(H_21 @ x1_h)
+    errors = np.linalg.norm(x2 - x2_pred, axis=0)   # (N,) one error per point
+    return np.sqrt(np.mean(errors**2))
+
+
 if __name__ == '__main__':
-    
+
     print("Homography...")
 
     #3.1 Homography definition
@@ -99,51 +162,12 @@ if __name__ == '__main__':
     plotTransferredPointsHomography(IMG1,IMG2,H_21)
 
     #3.3 Homography linear estimation from matches
-    u1, v1 = x1[0, :], x1[1, :]
-    u2, v2 = x2[0, :], x2[1, :]
+    H_est = homographyFromMatches(x1FloorData, x2FloorData)
+    print("H_21 estimated from matches:")
+    print(H_est)
 
-    ones = np.ones_like(u1)
-    zeros = np.zeros_like(u1)
-
-    #Construct A
-    A1 = np.stack([
-        u1, v1, ones,
-        zeros, zeros, zeros,
-        -u2*u1, -u2*v1, -u2
-    ], axis=1)
-
-    A2 = np.stack([
-        zeros, zeros, zeros,
-        u1, v1, ones,
-        -v2*u1, -v2*v1, -v2
-    ], axis=1)
-
-    print(A1.shape)  # (N, 9)
-    print(A2.shape)  # (N, 9)
-
-    #combine the equations:
-    A = np.vstack([A1, A2])
-
-    print(A.shape) # (2*N, 9)
-
-    #Estimate the homography using SVD
-    #solve AH = 0
-
-    _, _, Vt = np.linalg.svd(A)
-
-    h = Vt[-1, :]
-    H_est = h.reshape(3, 3)
-
-    H_est = H_est / H_est[2, 2]
-
-    #Evaluate the accuracy
-
-    x2_pred_h = H_est @ x1
-
-    x2_pred = x2_pred_h[:2, :] / x2_pred_h[2, :]
-
-    errors = np.linalg.norm(x2[:2, :] - x2_pred, axis=0)
-
-    rmse = np.sqrt(np.mean(errors**2))
-
-    print("Homography RMSE (pixels):", rmse)
+    # Evaluate the accuracy: estimated vs ground-truth homography on the same matches
+    rmse_est = homographyTransferError(H_est, x1FloorData, x2FloorData)
+    rmse_gt  = homographyTransferError(H_21,  x1FloorData, x2FloorData)
+    print(f"Transfer RMSE: estimated H {rmse_est:.4f} px, ground-truth H {rmse_gt:.4f} px")
+    plotTransferredPointsHomography(IMG1,IMG2,H_est)
