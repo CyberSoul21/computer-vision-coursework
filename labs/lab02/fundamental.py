@@ -327,6 +327,113 @@ def recoverPoseFromEssential(E_21, K_c1, K_c2, x1, x2):
     return T_21, X_best
 
 
+def alignToWorld(T_21, X_c1, T_w_c1, scale):
+    """
+    Express a two-view reconstruction (relative to camera 1, unknown scale) in the
+    world frame of the ground truth, so both can be compared directly.
+    The scale cannot be recovered from E (||t_21|| = 1), so it is taken from the
+    ground truth (true baseline). Then everything is moved from camera 1 to world
+    with the known pose of camera 1:
+        X_w   = T_w_c1 @ (scale * X_c1)
+        T_w_c2 = T_w_c1 @ inv(T_21 with t scaled)
+     -input:
+         T_21: (4x4) estimated T_c2_c1, translation with unit norm.
+         X_c1: (3xN) triangulated points in camera 1 coordinates (same unit scale).
+         T_w_c1: (4x4) ground-truth pose of camera 1 in the world frame.
+         scale: true baseline length ||t_21_gt|| (world units).
+     -output:
+         T_w_c2_est: (4x4) estimated pose of camera 2 in the world frame.
+         X_w_est: (3xN) estimated 3D points in the world frame.
+    """
+    # 1. Fix the scale: translation and points scale together
+    T_21_s = T_21.copy()
+    T_21_s[:3, 3] *= scale
+    X_c1_s = scale * X_c1
+
+    # 2. Camera 1 frame -> world frame
+    T_w_c2_est = T_w_c1 @ np.linalg.inv(T_21_s)
+    X_c1_h = np.vstack((X_c1_s, np.ones((1, X_c1_s.shape[1]))))
+    X_w_est = (T_w_c1 @ X_c1_h)[:3, :]
+
+    return T_w_c2_est, X_w_est
+
+
+def rotationError(R_est, R_gt):
+    """
+    Angular error between two rotations (geodesic distance on SO(3)).
+    R_err = R_est^T @ R_gt is the residual rotation that takes the estimate to the
+    ground truth (identity if both are equal). Its rotation angle is
+        theta = arccos((trace(R_err) - 1) / 2)
+     -input:
+         R_est: (3x3) estimated rotation matrix.
+         R_gt: (3x3) ground-truth rotation matrix.
+     -output:
+         theta: rotation error in degrees (0 = perfect).
+    """
+    R_err = R_est.T @ R_gt
+    # Clip: round-off can push the value slightly outside [-1, 1] -> arccos gives NaN
+    cos_theta = np.clip((np.trace(R_err) - 1) / 2, -1.0, 1.0)
+    return np.degrees(np.arccos(cos_theta))
+
+
+def translationDirectionError(t_est, t_gt):
+    """
+    Angular error between the estimated and ground-truth translation directions.
+    From E only the direction of t can be recovered (its norm is arbitrary), so the
+    error is measured as the angle between both vectors:
+        theta = arccos( (t_est . t_gt) / (||t_est|| ||t_gt||) )
+    No abs() is applied: the sign of t is fixed by the cheirality check, so a wrong
+    sign must show up as an error close to 180 deg.
+     -input:
+         t_est: (3,) estimated translation (any norm).
+         t_gt: (3,) ground-truth translation (any norm).
+     -output:
+         theta: direction error in degrees (0 = same direction, 180 = opposite).
+    """
+    cos_theta = np.dot(t_est, t_gt) / (np.linalg.norm(t_est) * np.linalg.norm(t_gt))
+    # Clip: round-off can push the value slightly outside [-1, 1] -> arccos gives NaN
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    return np.degrees(np.arccos(cos_theta))
+
+
+def pointsError(X_est, X_gt):
+    """
+    Euclidean error between estimated and ground-truth 3D points.
+    Both sets must be in the same frame and scale (e.g. after alignToWorld)
+    and in the same order (column i of X_est corresponds to column i of X_gt).
+        d_i = || X_est_i - X_gt_i ||
+     -input:
+         X_est: (3xN) estimated 3D points.
+         X_gt: (3xN) ground-truth 3D points.
+     -output:
+         mean: mean of d_i (world units).
+         median: median of d_i (robust to a few bad points).
+         rmse: sqrt(mean(d_i^2)) (penalizes large errors more).
+    """
+    d = np.linalg.norm(X_est[:3, :] - X_gt[:3, :], axis=0)     # (N,) one distance per point
+    return np.mean(d), np.median(d), np.sqrt(np.mean(d**2))
+
+
+def reprojectionError(P, X, x):
+    """
+    Reprojection error of 3D points in one image (does not need ground truth).
+    Each 3D point is projected with P and compared with the measured pixel:
+        x_proj = P @ [X; 1]  ->  (u, v) = x_proj[:2] / x_proj[2]
+        e_i = || x_i - (u_i, v_i) ||
+     -input:
+         P: (3x4) projection matrix of the camera (same frame as X).
+         X: (3xN) 3D points.
+         x: (2xN or 3xN) measured pixel points (only the first two rows are used).
+     -output:
+         rmse: sqrt(mean(e_i^2)) in pixels.
+    """
+    X_h = np.vstack((X[:3, :], np.ones((1, X.shape[1]))))
+    x_proj = P @ X_h
+    x_proj = x_proj[:2, :] / x_proj[2, :]                       # homogeneous -> pixels
+    e = np.linalg.norm(x[:2, :] - x_proj, axis=0)               # (N,) one error per point
+    return np.sqrt(np.mean(e**2))
+
+
 if __name__ == '__main__':
     
     print("Fundamental...")
@@ -398,8 +505,41 @@ if __name__ == '__main__':
     T_21, X = recoverPoseFromEssential(E_21, Kc, Kc, x1, x2)
     print("T_21:\n", T_21)
 
-    cameras = {'C1': np.eye(4), 'C2': np.linalg.inv(T_21)}
-    plot3DScene(X, cameras)
+    #2.5 Results presentation
+    X_w = np.loadtxt(DATA_LAB + 'X_w.txt')
+    if X_w.shape[0] == 4:                              # homogeneous -> Euclidean
+        X_w = X_w[:3, :] / X_w[3, :]
+
+    # True baseline (the only thing E cannot give us)
+    T_21_gt = np.linalg.inv(T_w_c2) @ T_w_c1
+    scale = np.linalg.norm(T_21_gt[:3, 3])
+
+    T_w_c2_est, X_w_est = alignToWorld(T_21, X, T_w_c1, scale)
+
+    # Metrics
+    rot_err = rotationError(T_21[:3, :3], T_21_gt[:3, :3])
+    print(f"Rotation error: {rot_err:.4f} deg")
+    t_err = translationDirectionError(T_21[:3, 3], T_21_gt[:3, 3])
+    print(f"Translation direction error: {t_err:.4f} deg")
+
+    mean_3d, median_3d, rmse_3d = pointsError(X_w_est, X_w)
+    print(f"3D points error: mean {mean_3d:.4f}, median {median_3d:.4f}, RMSE {rmse_3d:.4f} (world units)")
+
+    # Reprojection: estimated cameras + estimated points (camera 1 frame, scale-free)
+    P1_est = Kc @ np.hstack([np.eye(3), np.zeros((3, 1))])
+    P2_est = computeProjectionMatrix(Kc, T_21)
+    rep1 = reprojectionError(P1_est, X, x1)
+    rep2 = reprojectionError(P2_est, X, x2)
+    print(f"Reprojection error: image 1 {rep1:.4f} px, image 2 {rep2:.4f} px")
+
+    # Ground truth (blue, solid) vs estimation (red, dashed camera)
+    cameras = {'W': np.eye(4), 'C1': T_w_c1, 'C2': T_w_c2}
+    ax = plot3DScene(X_w, cameras, strColor='b', show=False)
+    plot3DPoints(ax, X_w_est, strColor='r')
+    drawRefSystem(ax, T_w_c2_est, '--', 'C2_est')
+    ax.set_title('Ground truth (blue) vs estimation (red)')
+    print('Close the figure to continue. Left button for orbit, right button for zoom.')
+    plt.show(block=True)
 
 
 
