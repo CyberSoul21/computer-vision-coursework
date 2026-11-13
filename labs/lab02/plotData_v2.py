@@ -208,12 +208,6 @@ def plot3DScene(X_w, cameras, ax=None, strColor='b', bbox=(-1, 3), show=True):
 
     return ax
 
-def drawLine(l, color='r', lWidth=1):
-    p_l_y = np.hstack((0, -l[2] / l[1]))
-    p_l_x = np.hstack((-l[2] / l[0], 0))
-    plt.plot([p_l_y[0], p_l_x[0]], [p_l_y[1], p_l_x[1]], color, linewidth=lWidth)
-
-
 if __name__ == '__main__':
     np.set_printoptions(precision=4,linewidth=1024,suppress=True)
 

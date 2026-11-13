@@ -44,6 +44,31 @@ def ransac(x1, x2, pMinSet, fitModel, residuals, threshold, P=0.999,
          inliers: (N,) boolean mask.
          history: list of dicts {'sample', 'inliers', 'nVotes', 'iteration'}.
     """
+
+    """
+    Step 1 — Random sampling
+
+    Randomly select 4 correspondences from your matches.
+
+    Step 2 — Model estimation
+
+    Compute a candidate homography H using those four correspondences.
+
+
+    Step 3 — Evaluate all matches
+
+    Use H to transfer each point from image 1 to image 2. Measure its distance to the corresponding observed point.
+
+
+    Step 4 — Count inliers
+
+    Count how many matches have an error below the chosen threshold. These are the votes for that hypothesis.
+
+    Step 5 — Repeat and select
+
+    Repeat with new random samples, retaining the homography with the largest inlier count.
+    """
+        
     rng = np.random.default_rng(seed)
     N = x1.shape[1]
     nAttempts = maxAttempts
@@ -102,6 +127,7 @@ def homographyFromMatches(x1, x2):
      -output:
          H_21: (3x3) with H_21[2,2] = 1, or None if degenerate.
     """
+
     T1, T2 = normalizationMatrix(x1), normalizationMatrix(x2)
     p1 = T1 @ (x1 / x1[2])
     p2 = T2 @ (x2 / x2[2])
@@ -239,9 +265,15 @@ def runHomography(name, img1, img2, x1, x2, threshold, nStore=0):
                 fileName=f'ex4_{tag}_all_matches.png')
     if history:
         plotRansacIterations(img1, img2, x1, x2, history, f'ex4_{tag}_iterations.png')
+    # Most voted homography: inliers (top) and outliers (bottom) in the same figure
+    fig, axs = plt.subplots(2, 1, figsize=(12, 9))
     showMatches(img1, img2, x1[:, inliers], x2[:, inliers],
-                f'{name}: most voted homography, {np.sum(inliers)} inliers',
-                fileName=f'ex4_{tag}_inliers.png', color=(0, 200, 0))
+                f'{name}: most voted homography, {np.sum(inliers)} inliers (green)',
+                color=(0, 200, 0), ax=axs[0])
+    showMatches(img1, img2, x1[:, ~inliers], x2[:, ~inliers],
+                f'{name}: {np.sum(~inliers)} outliers (red)',
+                color=(255, 0, 0), ax=axs[1])
+    saveFig(f'ex4_{tag}_inliers_outliers.png')
     plotPlaneTransfer(img1, img2, H, x1, x2, inliers, f'{name}: plane induced by H',
                       f'ex4_{tag}_plane.png')
     return H, inliers

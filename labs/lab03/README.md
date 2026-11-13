@@ -4,7 +4,7 @@
 |---|---|---|
 | 1. NN matching, threshold sweep | `matching.py` | `ex1_NN_thresholds.png` |
 | 2. NNDR matching (`matchWith2NNDR`) | `matching.py` | `ex2_NNDR_ratios.png`, `ex2_NNDR_selected.png` |
-| 3. SuperGlue matches | `matching.py` (loads `data/image1_image2_matches.npz`) | `ex3_superglue.png` |
+| 3. SuperGlue matches | `matching.py` (loads `output/image1_image2_matches.npz`) | `ex3_superglue.png` |
 | 4. RANSAC homography | `ransacHomography.py` | `ex4_*` |
 | 5. RANSAC fundamental matrix | `ransacFundamental.py` | `ex5_*` |
 | 6. Guided matching (optional) | `ransacFundamental.py` | `ex6_guided_new_matches.png` |
@@ -29,9 +29,9 @@ The repository is cloned at `~/SuperGluePretrainedNetwork`.
    L=~/Documents/CV_2026/computer-vision-coursework/labs/lab03/data
    ~/venvs/computerVision/bin/python match_pairs.py --resize 752 --superglue indoor \
        --max_keypoints 2048 --nms_radius 3 --resize_float \
-       --input_dir $L --input_pairs $L/image_pairs.txt --output_dir $L --viz
+       --input_dir $L --input_pairs $L/image_pairs.txt --output_dir $L/../output --viz
    ```
-   This writes `data/image1_image2_matches.npz` (and a visualization `.png`).
+   This writes `output/image1_image2_matches.npz` (and a visualization `.png`).
 
 ## Results and discussion (SIFT)
 
@@ -73,3 +73,27 @@ Reasons:
 epipolar line, and NNDR is applied among them. The distractors elsewhere in the image disappear,
 so many matches rejected by global NNDR are recovered (303 new). Its quality depends directly on
 F: a biased F (as with SIFT here) guides the search to the wrong line.
+
+## Results and discussion (SuperGlue vs SIFT)
+
+**Ex 3 – SuperGlue** (`output/image1_image2_matches.npz`): 377 / 702 keypoints, 244 matches.
+Almost all are coherent (parallel lines). Unlike SIFT NN, it matches the chessboard corners
+correctly: SuperGlue decides each match using the context of all keypoints (graph neural network
+with attention + optimal assignment), not only the local descriptor, so the repeated corners are
+not ambiguous.
+
+**Ex 4 – Homography with SuperGlue**: 69 / 244 inliers, 0.97 px RMSE. The dominant plane is
+now the **chessboard** (the warped image aligns on the chessboard, the wall behind it is
+doubled), with normal (-0.89, 0.08, 0.45) in world coordinates: a board leaning back about 27°
+from vertical, 2.8 m from camera 1. With SIFT the winner was the back wall instead, because the
+chessboard corners were removed by NNDR and most SIFT matches were on the mats. RANSAC returns the
+plane with the most matches, so the plane found depends on where the matcher finds points.
+
+**Ex 5 – Fundamental with SuperGlue**: 175 / 244 inliers, 0.6 px median epipolar distance.
+With seed 0, e2 = (934, -187) vs ground truth (883, -258), an 87 px error, against 542 px with
+SIFT. **That run is the best case, not typical**: over 10 seeds the e2 error has a median of
+307 px with SuperGlue (range 87–3021) and 562 px with SIFT (range 365–1283). SuperGlue is clearly
+better, because its matches cover several depths and planes (chessboard, wall, floor) so F is less
+degenerate, but the epipole is still unstable. Reasons: the epipoles are far outside the image,
+where a tiny angular error moves them many pixels; the lens distortion is uncorrected; and the
+poses are approximate.

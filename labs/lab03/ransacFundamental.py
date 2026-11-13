@@ -231,6 +231,6 @@ if __name__ == '__main__':
         runFundamental('SuperGlue', img1, img2, x1_sg, x2_sg, threshold=2.0, nStore=3)
 
     # Exercise 6 (optional): guided matching with the F estimated from SIFT
-    runGuidedMatching(img1, img2, kp1, desc1, kp2, desc2, F, m)
+    #runGuidedMatching(img1, img2, kp1, desc1, kp2, desc2, F, m)
 
     plt.show(block=True)   # block: keep windows open (also in the VS Code debugger)

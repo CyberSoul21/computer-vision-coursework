@@ -17,7 +17,8 @@ import cv2
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 FIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figures')
-SUPERGLUE_NPZ = os.path.join(DATA_DIR, 'image1_image2_matches.npz')
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output')
+SUPERGLUE_NPZ = os.path.join(OUTPUT_DIR, 'image1_image2_matches.npz')   # SuperGlue output
 
 # Calibration and ground-truth poses (from the lab statement)
 K_C = np.array([[458.654, 0.0,     367.215],
@@ -333,6 +334,13 @@ if __name__ == '__main__':
     # At distRatio = 0.70 and 0.60, the displayed matches are more concentrated around corresponding scene structures.
 
 
+    #The key idea: NNDR rejects ambiguous matches, even when their absolute 
+    # descriptor distances are small.
+    #This is especially useful for repetitive patterns such as the chessboard, 
+    # where different corners can produce nearly identical SIFT descriptors.
+
+
+
     # ---------------- Exercise 3: SuperGlue ----------------
     print('\n--- Exercise 3: SuperGlue ---')
     x1_sg, x2_sg, npz = loadSuperGlue()
@@ -342,4 +350,43 @@ if __name__ == '__main__':
         showMatches(img1, img2, x1_sg, x2_sg, f'SuperGlue: {x1_sg.shape[1]} matches',
                     fileName='ex3_superglue.png')
 
-    plt.show(block=True)   # block: keep windows open (also in the VS Code debugger)
+    # ---------------- Comparison table ----------------
+    # SIFT methods are scored by descriptor distance (lower = better), SuperGlue by
+    # match confidence in [0, 1] (higher = better): different units, separate columns.
+    mNN = matchWithNN(desc1, desc2, 200)
+    mNNDR = matchWith2NNDR(desc1, desc2, 0.8, 500)
+    rows = [('SIFT NN (minDist 200)', len(kp1), len(kp2), len(mNN),
+             f'{np.mean(mNN[:, 2]):.1f}', '-'),
+            ('SIFT NNDR (ratio 0.8)', len(kp1), len(kp2), len(mNNDR),
+             f'{np.mean(mNNDR[:, 2]):.1f}', '-')]
+    if x1_sg is not None:
+        conf = npz['match_confidence'][npz['matches'] > -1]
+        rows.append(('SuperGlue (indoor)', npz['keypoints0'].shape[0],
+                     npz['keypoints1'].shape[0], x1_sg.shape[1], '-', f'{np.mean(conf):.3f}'))
+
+    header = ('Method', 'Kpts img1', 'Kpts img2', 'Matches', '% img1 matched',
+              'Mean dist', 'Mean conf')
+    widths = (23, 10, 10, 8, 15, 10, 10)
+    print('\n--- Comparison of matching methods ---')
+    print(' | '.join(h.ljust(w) for h, w in zip(header, widths)))
+    print('-+-'.join('-' * w for w in widths))
+    for name, k1, k2, n, dist, cf in rows:
+        cells = (name, str(k1), str(k2), str(n), f'{100 * n / k1:.1f} %', dist, cf)
+        print(' | '.join(c.ljust(w) for c, w in zip(cells, widths)))
+
+    plt.show(block=True)   # block: keep windows open
+
+
+    """
+    --- Comparison of matching methods ---
+    Method                  | Kpts img1  | Kpts img2  | Matches  | % img1 matched  | Mean dist  | Mean conf
+    ------------------------+------------+------------+----------+-----------------+------------+-----------
+    SIFT NN (minDist 200)   | 2310       | 6520       | 942      | 40.8 %          | 137.7      | -
+    SIFT NNDR (ratio 0.8)   | 2310       | 6520       | 386      | 16.7 %          | 151.7      | -
+    SuperGlue (indoor)      | 377        | 702        | 244      | 64.7 %          | -          | 0.659
+    """
+
+    # Mean dist (SIFT): Average Euclidean distance between matched SIFT descriptors. 
+    #  Smaller generally means more similar descriptors.
+    # Mean conf (SuperGlue): Average confidence assigned to accepted correspondences. 
+    #  Larger generally indicates stronger model confidence.

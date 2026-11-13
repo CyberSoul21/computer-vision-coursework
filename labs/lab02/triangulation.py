@@ -5,40 +5,6 @@ from cvLibrary import *
 from plotData_v2 import *
 
 
-def triangulatePoints(P1, P2, x1, x2):
-    """
-    Triangulate 3D points from two views with the linear (DLT) method.
-    For each correspondence, the projection x ~ P @ X gives two linear equations per view:
-        u * P[2,:] - P[0,:]  ->  (u * p3 - p1) @ X = 0
-        v * P[2,:] - P[1,:]  ->  (v * p3 - p2) @ X = 0
-    Stacking both views gives A (4x4) @ X = 0, solved by SVD (last row of Vh).
-    All N points are solved at once (batched SVD).
-     -input:
-         P1: (3x4) projection matrix of camera 1 (K @ [R|t], world -> image 1).
-         P2: (3x4) projection matrix of camera 2 (K @ [R|t], world -> image 2).
-         x1: (2xN or 3xN) pixel points in image 1 (only the first two rows are used).
-         x2: (2xN or 3xN) corresponding pixel points in image 2.
-     -output:
-         X: (3xN) triangulated points in Euclidean world coordinates.
-    """
-    u1, v1 = x1[0, :], x1[1, :]
-    u2, v2 = x2[0, :], x2[1, :]
-
-    # Two equations per view, one (2x4) block per point -> (N, 2, 4)
-    A1 = np.stack([u1[:, None] * P1[2, :] - P1[0, :],
-                   v1[:, None] * P1[2, :] - P1[1, :]], axis=1)
-    A2 = np.stack([u2[:, None] * P2[2, :] - P2[0, :],
-                   v2[:, None] * P2[2, :] - P2[1, :]], axis=1)
-    A = np.concatenate([A1, A2], axis=1)            # (N, 4, 4)
-
-    # Solve A @ X = 0 for each point: last row of Vh -> (N, 4)
-    _, _, vh = np.linalg.svd(A)
-    X_h = vh[:, -1, :].T                            # (4, N) homogeneous
-
-    # Homogeneous -> Euclidean
-    return X_h[0:3, :] / X_h[3, :]
-
-
 if __name__ == '__main__':
 
     print("Triangulation...")
