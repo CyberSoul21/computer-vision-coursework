@@ -1,3 +1,19 @@
+#####################################################################################
+#
+# MRGCV Unizar - Computer vision - Laboratory 2
+#
+# Title: Fundamental matrix and Structure from Motion (Exercise 2)
+#        epipolar lines, F from ground truth, eight-point F,
+#        pose estimation from two views and results
+#
+#####################################################################################
+#####################################################################################
+#
+# Authors: Wilson Javier Almario, 962449
+# Date: 13 November 2026
+#          
+#####################################################################################
+
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 

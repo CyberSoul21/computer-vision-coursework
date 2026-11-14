@@ -1,9 +1,23 @@
+#####################################################################################
+#
+# MRGCV Unizar - Computer vision - Laboratory 2
+#
+# Title: Homographies (Exercise 3)
+#        H from ground truth, point transfer and linear estimation from matches
+#
+#####################################################################################
+#####################################################################################
+#
+# Authors: Wilson Javier Almario, 962449
+# Date: 13 November 2026
+#          
+#####################################################################################
+
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from cvLibrary import *
 from plotData_v2 import *
-#from triangulation import triangulatePoints
 
 IMG1 = cv2.cvtColor(cv2.imread(DATA_LAB + "Image1.png"), cv2.COLOR_BGR2RGB)
 IMG2 = cv2.cvtColor(cv2.imread(DATA_LAB + "Image2.png"), cv2.COLOR_BGR2RGB)

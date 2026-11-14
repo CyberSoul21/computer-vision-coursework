@@ -6,90 +6,18 @@
 #        and guided matching with epipolar geometry (Exercise 6, optional)
 #
 #####################################################################################
+#####################################################################################
+#
+# Authors: Wilson Javier Almario, 962449
+# Date: 13 November 2026
+#          
+#####################################################################################
+
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from cvLibrary import *
 from ransacHomography import *
-
-
-#########################################################################
-# Fundamental matrix model
-#########################################################################
-def fundamentalFromEightPoints(x1, x2):
-    """
-    Normalized eight-point method: F_21 with x2^T F_21 x1 = 0, from N >= 8 matches.
-    Hartley normalization -> A f = 0 by SVD -> rank 2 -> undo the normalization.
-     -input:
-         x1, x2: (3xN) homogeneous points.
-     -output:
-         F_21: (3x3) rank 2, unit Frobenius norm.
-    """
-    T1, T2 = normalizationMatrix(x1), normalizationMatrix(x2)
-    p1 = T1 @ (x1 / x1[2])
-    p2 = T2 @ (x2 / x2[2])
-    u1, v1, u2, v2 = p1[0], p1[1], p2[0], p2[1]
-    A = np.stack([u2 * u1, u2 * v1, u2, v2 * u1, v2 * v1, v2, u1, v1, np.ones_like(u1)], 1)
-    _, _, Vt = np.linalg.svd(A)
-    Fn = Vt[-1].reshape(3, 3)
-    U, S, Vt = np.linalg.svd(Fn)                # enforce rank 2
-    Fn = U @ np.diag([S[0], S[1], 0]) @ Vt
-    F = T2.T @ Fn @ T1                          # undo the normalization
-    return F / np.linalg.norm(F)
-
-
-def pointLineDistance(l, x):
-    """Distance (pixels) from points x (3xN) to lines l (3xN), column by column."""
-    num = np.abs(np.sum(l * (x / x[2]), axis=0))
-    return num / np.sqrt(l[0]**2 + l[1]**2)
-
-
-def fundamentalResiduals(F_21, x1, x2):
-    """
-    Symmetric epipolar distance (pixels): mean of
-        d(x2, F_21 x1)     distance of x2 to its epipolar line in image 2
-        d(x1, F_21^T x2)   distance of x1 to its epipolar line in image 1
-    """
-    return 0.5 * (pointLineDistance(F_21 @ x1, x2) + pointLineDistance(F_21.T @ x2, x1))
-
-
-def ransacFundamental(x1, x2, threshold=2.0, nStore=0, seed=0):
-    """RANSAC with the 8-point solution + least-squares refit with all inliers."""
-    F, inliers, history = ransac(x1, x2, 8, fundamentalFromEightPoints,
-                                 fundamentalResiduals, threshold, nStore=nStore, seed=seed)
-    F_ls = fundamentalFromEightPoints(x1[:, inliers], x2[:, inliers])
-    inliers_ls = fundamentalResiduals(F_ls, x1, x2) < threshold
-    print(f'  After LS refinement: {np.sum(inliers_ls)} inliers')
-    return F_ls, inliers_ls, history
-
-
-#########################################################################
-# Ground truth
-#########################################################################
-def skew(t):
-    return np.array([[0, -t[2], t[1]], [t[2], 0, -t[0]], [-t[1], t[0], 0]])
-
-
-def fundamentalFromGroundTruth(T_w_c1, T_w_c2, K1, K2):
-    """F_21 = K2^-T [t_21]x R_21 K1^-1 from the ground-truth poses."""
-    T_21 = np.linalg.inv(T_w_c2) @ T_w_c1
-    E = skew(T_21[:3, 3]) @ T_21[:3, :3]
-    F = np.linalg.inv(K2).T @ E @ np.linalg.inv(K1)
-    return F / np.linalg.norm(F)
-
-
-def epipolesFromGroundTruth(T_w_c1, T_w_c2, K1, K2):
-    """e1 = projection of the optical centre of camera 2 in image 1, and vice versa."""
-    def project(K, T_w_c, X_w):
-        X_c = np.linalg.inv(T_w_c) @ X_w
-        x = K @ X_c[:3]
-        return x / x[2]
-    e1 = project(K1, T_w_c1, T_w_c2[:, 3])
-    e2 = project(K2, T_w_c2, T_w_c1[:, 3])
-    return e1, e2
-
-
-def epipolesFromF(F_21):
-    """e1: right null vector of F_21, e2: left null vector (pixels, e[2] = 1)."""
-    U, _, Vt = np.linalg.svd(F_21)
-    e1, e2 = Vt[-1], U[:, -1]
-    return e1 / e1[2], e2 / e2[2]
 
 
 #########################################################################
@@ -140,7 +68,7 @@ def runFundamental(name, img1, img2, x1, x2, threshold, nStore=0):
 
     F_gt = fundamentalFromGroundTruth(T_W_C1, T_W_C2, K_C, K_C)
     e1_gt, e2_gt = epipolesFromGroundTruth(T_W_C1, T_W_C2, K_C, K_C)
-    e1, e2 = epipolesFromF(F)
+    e1, e2 = computeEpipoles(F)
     print(f'  e1 estimated = {e1[:2]}, ground truth = {e1_gt[:2]}, '
           f'error = {np.linalg.norm(e1[:2] - e1_gt[:2]):.1f} px')
     print(f'  e2 estimated = {e2[:2]}, ground truth = {e2_gt[:2]}, '

@@ -1,3 +1,21 @@
+#####################################################################################
+#
+# MRGCV Unizar - Computer vision - Laboratories 1, 2 and 3
+#
+# Title: Shared library of computer vision functions used in the laboratories
+#        Lab 1: rigid transformations, camera projection, 2D lines
+#        Lab 2: triangulation, fundamental/essential matrix, two-view SfM,
+#               homographies (Hartley-normalized DLT and eight-point method)
+#        Lab 3: generic RANSAC for homography and fundamental matrix estimation
+#
+#####################################################################################
+#####################################################################################
+#
+# Authors: Wilson Javier Almario, 962449
+# Date: 13 November 2026
+#
+#####################################################################################
+
 import matplotlib.pyplot as plt
 import scipy.linalg as scAlg
 import numpy as np
@@ -267,21 +285,71 @@ def fundamentalMatrixFromEssential(E,K_c1,K_c2):
     F /= np.linalg.norm(F)
     return F
 
+#-----------------------------------------------------------------------
+# Hartley normalization
+#-----------------------------------------------------------------------
+# Why: the DLT (homography) and the eight-point method (F) solve A @ h = 0 with
+# the SVD, and A is built from products of pixel coordinates. With pixels of
+# order 10^2 - 10^3, the columns of A range from 1 (the constant term) to
+# ~10^5 - 10^6 (u2*u1, v2*v1...). A is badly conditioned: the smallest singular
+# vector is dominated by the large columns and a little noise in the points
+# changes the solution a lot (Hartley, "In defense of the eight-point
+# algorithm", 1997). For F the effect is serious; for H it is milder.
+#
+# How: before building A, each image's points are transformed with a similarity
+# T (translation + isotropic scale) so that
+#     - their centroid is at the origin, and
+#     - their mean distance to the origin is sqrt(2)
+#       (the "average" point becomes ~(1, 1, 1), all columns of A are ~1).
+#     x1n = T1 @ x1,   x2n = T2 @ x2
+# The model is estimated with the normalized points and then the normalization
+# is undone (T is invertible, so the problem is the same, only better posed):
+#     Homography:  x2n ~ Hn @ x1n   ->  T2 x2 ~ Hn T1 x1   ->  H = T2^-1 @ Hn @ T1
+#     Fundamental: x2n^T Fn x1n = 0 ->  x2^T (T2^T Fn T1) x1 = 0 ->  F = T2^T @ Fn @ T1
+# For F, rank 2 is enforced on Fn (before undoing the normalization).
+#-----------------------------------------------------------------------
+def normalizationMatrix(x):
+    """
+    Hartley normalization matrix of a set of image points.
+     -input:
+         x: (2xN or 3xN) pixel points.
+     -output:
+         T: (3x3) similarity such that the points T @ x have their centroid at
+            the origin and mean distance sqrt(2) to it:
+                [ s  0  -s*cx ]
+                [ 0  s  -s*cy ]      s = sqrt(2) / mean distance to the centroid
+                [ 0  0    1   ]
+    """
+    p = toPixels(x)
+    c = np.mean(p, axis=1)                                      # centroid (cx, cy)
+    meanDist = np.mean(np.linalg.norm(p - c[:, None], axis=0))
+    s = np.sqrt(2) / max(meanDist, 1e-12)                       # avoid / 0 (all points equal)
+    return np.array([[s, 0, -s * c[0]],
+                     [0, s, -s * c[1]],
+                     [0, 0, 1]])
+
+
 def fundamentalFromEightPoints(x1, x2):
     """
-    Estimate the fundamental matrix F_21 with the (linear) eight-point method.
+    Estimate the fundamental matrix F_21 with the normalized eight-point method.
     Each correspondence gives one equation x2^T @ F_21 @ x1 = 0, linear in the
     9 entries of F_21. Stacking N >= 8 of them gives A @ f = 0, solved by SVD.
     Rank 2 is then enforced (smallest singular value set to 0).
+    The points are normalized first (see normalizationMatrix).
      -input:
-         x1: (3xN) homogeneous pixel points in image 1, N >= 8.
-         x2: (3xN) corresponding homogeneous pixel points in image 2.
+         x1: (2xN or 3xN) pixel points in image 1, N >= 8.
+         x2: (2xN or 3xN) corresponding pixel points in image 2.
      -output:
          F_21: (3x3) fundamental matrix of rank 2, normalized to unit Frobenius norm.
     """
-    # 1. Build A (N x 9): one row per correspondence
-    u1, v1 = x1[0], x1[1]
-    u2, v2 = x2[0], x2[1]
+    # 0. Hartley normalization of each image's points
+    T1, T2 = normalizationMatrix(x1), normalizationMatrix(x2)
+    p1 = T1 @ np.vstack((toPixels(x1), np.ones((1, x1.shape[1]))))
+    p2 = T2 @ np.vstack((toPixels(x2), np.ones((1, x2.shape[1]))))
+
+    # 1. Build A (N x 9): one row per correspondence (normalized coordinates)
+    u1, v1 = p1[0], p1[1]
+    u2, v2 = p2[0], p2[1]
     ones = np.ones_like(u1)
     A = np.stack([u2*u1, u2*v1, u2,
                   v2*u1, v2*v1, v2,
@@ -289,12 +357,15 @@ def fundamentalFromEightPoints(x1, x2):
 
     # 2. Solve A f = 0 -> last row of Vh (smallest singular value)
     _, _, vh = np.linalg.svd(A)
-    F_21 = vh[-1, :].reshape(3, 3)
+    F_n = vh[-1, :].reshape(3, 3)
 
-    # 3. Enforce rank(F) = 2
-    U, S, Vt = np.linalg.svd(F_21)
+    # 3. Enforce rank(F) = 2 (on the normalized F)
+    U, S, Vt = np.linalg.svd(F_n)
     S[-1] = 0
-    F_21 = U @ np.diag(S) @ Vt
+    F_n = U @ np.diag(S) @ Vt
+
+    # 4. Undo the normalization: F = T2^T @ F_n @ T1
+    F_21 = T2.T @ F_n @ T1
 
     F_21 /= np.linalg.norm(F_21)
     return F_21
@@ -659,15 +730,19 @@ def homographyFromMatches(x1, x2):
         [u1 v1 1  0  0  0  -u2*u1 -u2*v1 -u2] @ h = 0
         [0  0  0  u1 v1 1  -v2*u1 -v2*v1 -v2] @ h = 0
     Stacking N >= 4 matches gives A (2N x 9) @ h = 0, solved by SVD (last row of Vt).
+    The points are normalized first (see normalizationMatrix).
      -input:
          x1: (2xN or 3xN) pixel points in image 1, N >= 4 (points on the plane).
          x2: (2xN or 3xN) corresponding pixel points in image 2.
      -output:
          H_21: (3x3) homography, normalized so H_21[2,2] = 1.
     """
-    x1, x2 = toPixels(x1), toPixels(x2)
-    u1, v1 = x1[0, :], x1[1, :]
-    u2, v2 = x2[0, :], x2[1, :]
+    # 0. Hartley normalization of each image's points
+    T1, T2 = normalizationMatrix(x1), normalizationMatrix(x2)
+    p1 = T1 @ np.vstack((toPixels(x1), np.ones((1, x1.shape[1]))))
+    p2 = T2 @ np.vstack((toPixels(x2), np.ones((1, x2.shape[1]))))
+    u1, v1 = p1[0, :], p1[1, :]
+    u2, v2 = p2[0, :], p2[1, :]
 
     ones = np.ones_like(u1)
     zeros = np.zeros_like(u1)
@@ -683,17 +758,44 @@ def homographyFromMatches(x1, x2):
 
     # Solve A h = 0 -> last row of Vt (smallest singular value)
     _, _, Vt = np.linalg.svd(A)
-    H_21 = Vt[-1, :].reshape(3, 3)
+    H_n = Vt[-1, :].reshape(3, 3)
+
+    # Undo the normalization: H = T2^-1 @ H_n @ T1
+    H_21 = np.linalg.inv(T2) @ H_n @ T1
 
     # Normalize (H is defined up to scale)
     return H_21 / H_21[2, 2]
+
+
+def homographyResiduals(H_21, x1, x2):
+    """
+    Transfer error of a homography for EACH match: points of image 1 are mapped
+    to image 2 with H_21 and compared with the measured points in image 2.
+        e_i = || x2_i - pixels(H_21 @ x1_i) ||
+    One error per match is what RANSAC needs to classify each match as inlier
+    (e_i < threshold) or outlier. If H_21 maps a point to infinity (third
+    homogeneous coordinate = 0, possible for bad RANSAC hypotheses), its error
+    is inf, so it is always an outlier.
+     -input:
+         H_21: (3x3) homography (image 1 -> image 2).
+         x1: (2xN or 3xN) pixel points in image 1.
+         x2: (2xN or 3xN) corresponding pixel points in image 2.
+     -output:
+         errors: (N,) e_i in pixels, one per match.
+    """
+    x1, x2 = toPixels(x1), toPixels(x2)
+    x1_h = np.vstack((x1, np.ones((1, x1.shape[1]))))
+    with np.errstate(divide='ignore', invalid='ignore'):   # point at infinity -> inf/nan
+        x2_pred = toPixels(H_21 @ x1_h)
+        errors = np.linalg.norm(x2 - x2_pred, axis=0)      # (N,) one error per point
+    return np.nan_to_num(errors, nan=np.inf, posinf=np.inf)
 
 
 def homographyTransferError(H_21, x1, x2):
     """
     Transfer error of a homography: points of image 1 are mapped to image 2 with
     H_21 and compared with the measured points in image 2.
-        e_i = || x2_i - pixels(H_21 @ x1_i) ||
+        e_i = || x2_i - pixels(H_21 @ x1_i) ||   (see homographyResiduals)
      -input:
          H_21: (3x3) homography (image 1 -> image 2).
          x1: (2xN or 3xN) pixel points in image 1.
@@ -701,10 +803,7 @@ def homographyTransferError(H_21, x1, x2):
      -output:
          rmse: sqrt(mean(e_i^2)) in pixels.
     """
-    x1, x2 = toPixels(x1), toPixels(x2)
-    x1_h = np.vstack((x1, np.ones((1, x1.shape[1]))))
-    x2_pred = toPixels(H_21 @ x1_h)
-    errors = np.linalg.norm(x2 - x2_pred, axis=0)   # (N,) one error per point
+    errors = homographyResiduals(H_21, x1, x2)
     return np.sqrt(np.mean(errors**2))
 
 
@@ -716,6 +815,249 @@ def homographyTransferError(H_21, x1, x2):
 #########################################################################
 #--Lab 03--
 #########################################################################
+#***********************************************************************
+#+++RANSAC (generic, used for the homography and the fundamental matrix)
+#***********************************************************************
+def nRansacAttempts(inlierFrac, pMinSet, P=0.999):
+    """
+    Number of random samples so that, with probability P, at least one minimal
+    sample is free of outliers:  m = log(1 - P) / log(1 - w^s)
+     -input:
+         inlierFrac: w, fraction of inliers (0..1).
+         pMinSet: s, size of the minimal sample (4 for H, 8 for F).
+         P: desired probability of drawing at least one sample without outliers.
+     -output:
+         m: number of attempts (a huge number if w^s ~ 0, to be capped by the caller).
+    """
+    pGood = np.clip(inlierFrac, 0.0, 1.0)**pMinSet   # P(sample without outliers)
+    if pGood <= 1e-12:
+        return np.iinfo(np.int32).max                 # caller caps it with maxAttempts
+    if pGood >= 1.0:
+        return 1
+    return int(np.ceil(np.log(1 - P) / np.log1p(-pGood)))
+
+
+def ransac(x1, x2, pMinSet, fitModel, residuals, threshold, P=0.999,
+           maxAttempts=20000, seed=0, nStore=0):
+    """
+    Generic RANSAC for two-view models (homography, fundamental matrix).
+    Each iteration: random minimal sample -> model hypothesis -> votes = number of
+    matches whose residual is below the threshold. The most voted hypothesis wins.
+    The number of attempts is updated adaptively with the best inlier ratio found.
+    The model is given as two functions, so the same loop serves for H and F:
+        H: ransac(x1, x2, 4, homographyFromMatches, homographyResiduals, thr)
+        F: ransac(x1, x2, 8, fundamentalFromEightPoints, fundamentalResiduals, thr)
+     -input:
+         x1, x2: (3xN) homogeneous matched points.
+         pMinSet: size of the minimal sample (4 for H, 8 for F).
+         fitModel: f(x1, x2) -> model (3x3) or None.
+         residuals: f(model, x1, x2) -> (N,) error in pixels.
+         threshold: inlier threshold in pixels.
+         P: desired probability of drawing at least one sample without outliers.
+         maxAttempts: maximum number of attempts.
+         seed: random seed (reproducible results).
+         nStore: if > 0, keep the hypotheses that improved the best vote count
+                 (sample, inliers) and return nStore of them (first, ..., last) for plotting.
+     -output:
+         model: most voted model.
+         inliers: (N,) boolean mask.
+         history: list of dicts {'sample', 'inliers', 'nVotes', 'iteration'}.
+    """
+
+    """
+    Step 1 — Random sampling
+
+    Randomly select pMinSet correspondences from your matches (4 for H, 8 for F).
+
+    Step 2 — Model estimation
+
+    Compute a candidate model (H or F) using those correspondences.
+
+
+    Step 3 — Evaluate all matches
+
+    Measure the error of every match with respect to the model. For H: transfer each
+    point from image 1 to image 2 and measure its distance to the corresponding observed
+    point. For F: distance of each point to its epipolar line.
+
+
+    Step 4 — Count inliers
+
+    Count how many matches have an error below the chosen threshold. These are the votes for that hypothesis.
+
+    Step 5 — Repeat and select
+
+    Repeat with new random samples, retaining the model with the largest inlier count.
+    """
+
+    N = x1.shape[1]
+    if N < pMinSet:
+        raise ValueError(f'RANSAC needs at least {pMinSet} matches, got {N}')
+
+    rng = np.random.default_rng(seed)
+    nAttempts = maxAttempts
+    bestVotes, bestModel, bestInliers = -1, None, np.zeros(N, bool)
+    history = []
+
+    k = 0
+    while k < nAttempts:
+        sample = rng.choice(N, size=pMinSet, replace=False)
+        model = fitModel(x1[:, sample], x2[:, sample])
+        k += 1
+        if model is None:
+            continue
+        inliers = residuals(model, x1, x2) < threshold
+        nVotes = int(np.sum(inliers))
+
+        if nVotes > bestVotes:
+            if nStore > 0:
+                history.append({'sample': sample, 'inliers': inliers,
+                                'nVotes': nVotes, 'iteration': k})
+            bestVotes, bestModel, bestInliers = nVotes, model, inliers
+            # Adaptive number of attempts with the current inlier ratio
+            nAttempts = min(maxAttempts, nRansacAttempts(nVotes / N, pMinSet, P))
+
+    if len(history) > nStore:   # evenly spaced improvements, always first and last
+        history = [history[i] for i in np.linspace(0, len(history) - 1, nStore).astype(int)]
+    print(f'  RANSAC: {k} attempts, {bestVotes}/{N} inliers ({100 * bestVotes / N:.1f} %)')
+    return bestModel, bestInliers, history
+
+
+#***********************************************************************
+#+++Fundamental matrix residuals
+#***********************************************************************
+def pointLineDistance(l, x):
+    """
+    Distance from points to lines, column by column:
+        d_i = |l_i . x_i| / sqrt(a_i^2 + b_i^2),   l_i = (a_i, b_i, c_i)
+     -input:
+         l: (3xN) lines in homogeneous coordinates.
+         x: (3xN) homogeneous points.
+     -output:
+         d: (N,) distances in pixels (inf for a degenerate line a = b = 0).
+    """
+    num = np.abs(np.sum(l * (x / x[2]), axis=0))
+    with np.errstate(divide='ignore', invalid='ignore'):
+        d = num / np.sqrt(l[0]**2 + l[1]**2)
+    return np.nan_to_num(d, nan=np.inf, posinf=np.inf)
+
+
+def fundamentalResiduals(F_21, x1, x2):
+    """
+    Symmetric epipolar distance for EACH match: mean of
+        d(x2, F_21 x1)     distance of x2 to its epipolar line in image 2
+        d(x1, F_21^T x2)   distance of x1 to its epipolar line in image 1
+    One error per match, so RANSAC can classify each match as inlier or outlier.
+     -input:
+         F_21: (3x3) fundamental matrix (x2^T @ F_21 @ x1 = 0).
+         x1: (3xN) homogeneous pixel points in image 1.
+         x2: (3xN) corresponding homogeneous pixel points in image 2.
+     -output:
+         errors: (N,) symmetric epipolar distance in pixels.
+    """
+    return 0.5 * (pointLineDistance(F_21 @ x1, x2) + pointLineDistance(F_21.T @ x2, x1))
+
+
+#***********************************************************************
+#+++Plane from homography
+#***********************************************************************
+def planeFromHomography(H_21, K1, K2, T_w_c1, T_w_c2):
+    """
+    Recover the scene plane that induces H_21, using the ground-truth relative pose.
+        K2^-1 H_21 K1 = lambda * (R_21 - t_21 n^T / d)
+    Linear in lambda and v = lambda * n / d  (9 equations, 4 unknowns -> least squares).
+     -input:
+         H_21: (3x3) homography (image 1 -> image 2).
+         K1, K2: (3x3) intrinsic calibration matrices of cameras 1 and 2.
+         T_w_c1, T_w_c2: (4x4) ground-truth poses of the cameras in the world frame.
+     -output:
+         n_c1: (3,) unit normal of the plane in camera 1 (pointing towards camera 1).
+         d: distance (m) from camera 1 to the plane.
+         n_w: (3,) normal in the world frame.
+    """
+    T_21 = np.linalg.inv(T_w_c2) @ T_w_c1
+    R, t = T_21[:3, :3], T_21[:3, 3]
+    A = np.linalg.inv(K2) @ H_21 @ K1
+    # vec(A) = lambda * vec(R) - vec(t v^T)  -> unknowns [lambda, v1, v2, v3]
+    M = np.zeros((9, 4))
+    M[:, 0] = R.reshape(-1)
+    for j in range(3):
+        E = np.zeros((3, 3)); E[:, j] = -t
+        M[:, 1 + j] = E.reshape(-1)
+    sol, *_ = np.linalg.lstsq(M, A.reshape(-1), rcond=None)
+    lam, v = sol[0], sol[1:]
+    m = v / lam                                   # n / d
+    d = 1.0 / np.linalg.norm(m)
+    n_c1 = m * d
+    if n_c1[2] > 0:                               # normal pointing towards camera 1
+        n_c1 = -n_c1
+    n_w = T_w_c1[:3, :3] @ n_c1
+    return n_c1, d, n_w
+
+#***********************************************************************
+#+++Homography RANSAC
+#   (ransac + homographyFromMatches + homographyResiduals)
+#***********************************************************************
+def ransacHomography(x1, x2, threshold=2.0, nStore=0, seed=0):
+    """
+    RANSAC with the 4-point minimal solution, then least-squares refit of H with all
+    inliers (and inliers recomputed with the refined H).
+    """
+    H, inliers, history = ransac(x1, x2, 4, homographyFromMatches, homographyResiduals,
+                                 threshold, nStore=nStore, seed=seed)
+    H_ls = homographyFromMatches(x1[:, inliers], x2[:, inliers])
+    inliers_ls = homographyResiduals(H_ls, x1, x2) < threshold
+    print(f'  After LS refinement: {np.sum(inliers_ls)} inliers')
+    return H_ls, inliers_ls, history
+
+
+#***********************************************************************
+#+++Fundamental matrix RANSAC
+#   (ransac + fundamentalFromEightPoints + fundamentalResiduals)
+#***********************************************************************
+def ransacFundamental(x1, x2, threshold=2.0, nStore=0, seed=0):
+    """RANSAC with the 8-point solution + least-squares refit with all inliers."""
+    F, inliers, history = ransac(x1, x2, 8, fundamentalFromEightPoints,
+                                 fundamentalResiduals, threshold, nStore=nStore, seed=seed)
+    F_ls = fundamentalFromEightPoints(x1[:, inliers], x2[:, inliers])
+    inliers_ls = fundamentalResiduals(F_ls, x1, x2) < threshold
+    print(f'  After LS refinement: {np.sum(inliers_ls)} inliers')
+    return F_ls, inliers_ls, history
+
+
+#***********************************************************************
+#+++Ground truth (to check an estimated F)
+#   (epipoles of an estimated F: computeEpipoles)
+#***********************************************************************
+def fundamentalFromGroundTruth(T_w_c1, T_w_c2, K1, K2):
+    """
+    Ground-truth fundamental matrix: F_21 = K2^-T [t_21]x R_21 K1^-1.
+     -input:
+         T_w_c1, T_w_c2: (4x4) ground-truth poses of the cameras in the world frame.
+         K1, K2: (3x3) intrinsic calibration matrices.
+     -output:
+         F_21: (3x3) fundamental matrix, unit Frobenius norm.
+    """
+    return fundamentalMatrixFromEssential(essentialFromGroundTruth(T_w_c1, T_w_c2), K1, K2)
+
+
+def epipolesFromGroundTruth(T_w_c1, T_w_c2, K1, K2):
+    """
+    Ground-truth epipoles, by projecting each optical centre into the other image:
+        e1 = projection of the optical centre of camera 2 in image 1
+        e2 = projection of the optical centre of camera 1 in image 2
+    The optical centre of a camera in the world is the last column of T_w_c.
+     -input:
+         T_w_c1, T_w_c2: (4x4) ground-truth poses of the cameras in the world frame.
+         K1, K2: (3x3) intrinsic calibration matrices.
+     -output:
+         e1, e2: (3,) epipoles in homogeneous pixel coordinates (e[2] = 1).
+    """
+    P1 = computeProjectionMatrix(K1, invert_transform(T_w_c1))   # world -> image 1
+    P2 = computeProjectionMatrix(K2, invert_transform(T_w_c2))   # world -> image 2
+    e1 = projectPoints(P1, T_w_c2[:, 3:4])                       # centre of camera 2
+    e2 = projectPoints(P2, T_w_c1[:, 3:4])                       # centre of camera 1
+    return np.append(e1[:, 0], 1.0), np.append(e2[:, 0], 1.0)
 
 
 

@@ -3,15 +3,15 @@
 # MRGCV Unizar - Computer vision - Laboratory 1
 #
 # Title: 2D-3D geometry in homogeneous coordinates and camera projection
-#
-# Date: 5 September 2026
+#        (Exercises 1, 2 and 4: projection matrices, 2D lines and
+#        vanishing points, planes in homogeneous coordinates)
 #
 #####################################################################################
+#####################################################################################
 #
-# Authors: Wilson Javier Almario Rodriguez.
-#
-# Version: 2.0
-#
+# Authors: Wilson Javier Almario, 962449
+# Date: 13 November 2026
+#          
 #####################################################################################
 
 import matplotlib.pyplot as plt

@@ -3,13 +3,19 @@
 # MRGCV Unizar - Computer vision - Laboratory 3
 #
 # Title: Feature matching (Exercises 1, 2 and 3)
-#   1. Nearest Neighbour (NN) matching with a maximum descriptor distance.
-#   2. Nearest Neighbour Distance Ratio (NNDR) matching.
-#   3. Loading SuperGlue matches (.npz produced by match_pairs.py).
-#
-# Helpers shared by ransacHomography.py and ransacFundamental.py are defined here.
+#        1. Nearest Neighbour (NN) matching with a maximum descriptor distance.
+#        2. Nearest Neighbour Distance Ratio (NNDR) matching.
+#        3. Loading SuperGlue matches (.npz produced by match_pairs.py).
+#        Helpers shared by ransacHomography.py and ransacFundamental.py.
 #
 #####################################################################################
+#####################################################################################
+#
+# Authors: Wilson Javier Almario, 962449
+# Date: 13 November 2026
+#          
+#####################################################################################
+
 import os
 import matplotlib.pyplot as plt
 import numpy as np
